@@ -86,13 +86,19 @@ int main(int argc, char** argv)
     using namespace std;
     using namespace std::literals;
 
+    if (argc != 2)
+    {
+        cerr << "usage dec_mov <file>\n";
+        return EXIT_FAILURE;
+    }
+
     try
     {
         ifstream file;
         // file.exceptions(std::ios_base::failbit);
         file.open(argv[1], std::ios::binary);
 
-        cout << "bits 16\n";
+        cout << "bits 16\n\n";
 
         array<byte, 2> mov_command;
         while (file.read(reinterpret_cast<char*>(mov_command.data()),
