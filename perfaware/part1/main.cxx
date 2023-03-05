@@ -10,73 +10,130 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
-struct cmd_mov
+struct instruction
 {
-    explicit cmd_mov(std::array<std::byte, 2> binary)
-        : bytes{ *reinterpret_cast<binary_representation*>(binary.data()) }
+    explicit instruction(std::istream& binary)
+        : bytes{}
     {
         using namespace std;
-        if (!is_mov_instruction())
+        if (!parse_from_binary_stream(binary))
         {
             stringstream ss;
-            ss << "invalid binary for mov command [0x" << hex
-               << static_cast<uint32_t>(binary[0]) << " 0x"
-               << static_cast<uint32_t>(binary[1]) << "] or [0b"
-               << bitset<8>(static_cast<uint8_t>(binary[0])) << " 0b"
-               << bitset<8>(static_cast<uint8_t>(binary[1])) << "] "
-               << "opcode: 0b" << bitset<6>(bytes.opcode) << " "
-               << "d: 0b" << bitset<1>(bytes.d) << " "
-               << "w: 0b" << bitset<1>(bytes.w) << " "
-               << "mod: 0b" << bitset<2>(bytes.mod) << " "
-               << "reg: 0b" << bitset<3>(bytes.reg) << " "
-               << "r/m: 0b" << bitset<3>(bytes.r_m);
+            ss << "invalid binary for mov command ";
             string err = ss.str();
-            throw runtime_error(err);
+            cerr << err << endl;
         }
     }
-    bool is_mov_instruction() const { return bytes.opcode == mov_prefix; }
-    static constexpr uint8_t mov_prefix = 0b100010;
+
+    std::string_view name() const { return instruction_names[bytes.index()]; }
 
     std::string_view destanation_name() const
     {
-        unsigned reg = bytes.d == 1 ? bytes.reg : bytes.r_m;
-        return reg_names[bytes.w][reg];
+        if (std::holds_alternative<register_memory_to_from_register>(bytes))
+        {
+            const auto& mov = std::get<register_memory_to_from_register>(bytes);
+            if (mov.mod ==
+                register_memory_to_from_register::mod_register_to_register)
+            {
+                unsigned reg = mov.d == 1 ? mov.reg : mov.r_m;
+                return reg_names[mov.w][reg];
+            }
+        }
+        return "error";
     }
 
     std::string_view source_name() const
     {
-        unsigned reg = bytes.d == 0 ? bytes.reg : bytes.r_m;
-        return reg_names[bytes.w][reg];
+        if (std::holds_alternative<register_memory_to_from_register>(bytes))
+        {
+            const auto& mov = std::get<register_memory_to_from_register>(bytes);
+            if (mov.mod ==
+                register_memory_to_from_register::mod_register_to_register)
+            {
+
+                unsigned reg = mov.d == 0 ? mov.reg : mov.r_m;
+                return reg_names[mov.w][reg];
+            }
+        }
+        return "error";
     }
 
-#pragma pack(push, 1)
-    struct binary_representation
+    operator bool() const { return bytes.index() != 0; }
+
+private:
+    [[nodiscard]] bool parse_from_binary_stream(std::istream& binary)
     {
-        uint8_t w : 1; /// word/byte operation 16 or 8 bit
-        uint8_t d : 1; /// Direction to or from register if 1 - reg is dst
-        uint8_t opcode : 6;
+        using namespace std;
+        array<byte, 6> max_instruction_buffer{};
+
+        if (!binary.read(reinterpret_cast<char*>(max_instruction_buffer.data()),
+                         1))
+        {
+            if (binary.eof())
+            {
+                return true;
+            }
+            return false;
+        }
+
+        if (auto command = reinterpret_cast<register_memory_to_from_register*>(
+                max_instruction_buffer.data());
+            command->opcode == register_memory_to_from_register::prefix)
+        {
+            if (!binary.read(
+                    reinterpret_cast<char*>(&max_instruction_buffer[1]), 1))
+            {
+                return false;
+            }
+
+            if (command->mod ==
+                register_memory_to_from_register::mod_register_to_register)
+            {
+                bytes = *command;
+                return true;
+            }
+        }
+
+        return false;
+    }
+#pragma pack(push, 1)
+    struct register_memory_to_from_register
+    {
+        static constexpr uint8_t prefix                   = 0b100010;
+        static constexpr uint8_t mod_register_to_register = 0b11;
+
+        uint8_t w : 1;      /// word/byte operation 16 or 8 bit
+        uint8_t d : 1;      /// Direction to or from register if 1 - reg is dst
+        uint8_t opcode : 6; /// should be 100010
 
         uint8_t r_m : 3;
         uint8_t reg : 3;
-        uint8_t mod : 2;
+        uint8_t mod : 2; /// should be 11
+
+        uint8_t disp_lo : 8;
+
+        uint8_t disp_hi : 8;
     };
 #pragma pack(pop)
 
-    static_assert(sizeof(binary_representation) == 2,
+    static_assert(sizeof(register_memory_to_from_register) == 4,
                   "should be exactly two bytes");
 
     static constexpr const char* reg_names[2][8] = {
         { "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh" },
         { "ax", "cx", "dx", "bx", "sp", "bp", "si", "di" }
     };
+    static constexpr const char* instruction_names[2] = { "invalid_state",
+                                                          "mov" };
 
-    binary_representation bytes;
+    std::variant<std::monostate, register_memory_to_from_register> bytes;
 };
 
-std::ostream& operator<<(std::ostream& out, const cmd_mov cmd)
+std::ostream& operator<<(std::ostream& out, const instruction cmd)
 {
-    out << "mov ";
+    out << cmd.name() << " ";
     out << cmd.destanation_name() << ", " << cmd.source_name();
     return out;
 }
@@ -100,12 +157,9 @@ int main(int argc, char** argv)
 
         cout << "bits 16\n\n";
 
-        array<byte, 2> mov_command;
-        while (file.read(reinterpret_cast<char*>(mov_command.data()),
-                         mov_command.size()))
+        for (instruction cmd(file); cmd; cmd = instruction(file))
         {
-            cmd_mov mov(mov_command);
-            cout << mov << '\n';
+            cout << cmd << '\n';
         }
     }
     catch (const std::exception& ex)
