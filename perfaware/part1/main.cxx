@@ -40,6 +40,11 @@ struct instruction
                 unsigned reg = mov.d == 1 ? mov.reg : mov.r_m;
                 return reg_names[mov.w][reg];
             }
+            else if (mov.mod == register_memory_to_from_register::mod_memory &&
+                     mov.r_m != 0b110)
+            {
+                return reg_names[mov.w][mov.reg];
+            }
         }
         else if (std::holds_alternative<immediate_to_register>(bytes))
         {
@@ -60,6 +65,11 @@ struct instruction
 
                 unsigned reg = mov.d == 0 ? mov.reg : mov.r_m;
                 return reg_names[mov.w][reg];
+            }
+            else if (mov.mod == register_memory_to_from_register::mod_memory &&
+                     mov.r_m != 0b110)
+            {
+                return displacement_names[mov.r_m];
             }
         }
         else if (std::holds_alternative<immediate_to_register>(bytes))
@@ -111,6 +121,13 @@ private:
                 bytes = *command;
                 return true;
             }
+            else if (command->mod ==
+                         register_memory_to_from_register::mod_memory &&
+                     command->r_m != 0b110)
+            {
+                bytes = *command;
+                return true;
+            }
         }
         else if (auto command = reinterpret_cast<immediate_to_register*>(
                      max_instruction_buffer.data());
@@ -133,7 +150,15 @@ private:
 #pragma pack(push, 1)
     struct register_memory_to_from_register
     {
-        static constexpr uint8_t prefix                   = 0b100010;
+        static constexpr uint8_t prefix = 0b100010;
+        // memory-mode no displacement (only if r_m==110 then 16-bit
+        // displacement folows)
+        static constexpr uint8_t mod_memory = 0b00;
+        // memory-mode 8bit displacement folows
+        static constexpr uint8_t mod_memory_8_bit = 0b01;
+        // memory-mode 16bit displacement folows
+        static constexpr uint8_t mod_memoty_16_bit = 0b10;
+        // register-mode no displacement
         static constexpr uint8_t mod_register_to_register = 0b11;
 
         uint8_t w : 1;      /// word/byte operation 16 or 8 bit
@@ -168,6 +193,10 @@ private:
     static constexpr const char* reg_names[2][8] = {
         { "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh" },
         { "ax", "cx", "dx", "bx", "sp", "bp", "si", "di" }
+    };
+    static constexpr const char* displacement_names[8] = {
+        "[bx + si]", "[bx + di]", "[bp + si]",     "[bp + di]",
+        "[si]",      "[di]",      "direct access", "[bx]"
     };
     static constexpr const char* instruction_names[3] = { "invalid_state",
                                                           "mov",
