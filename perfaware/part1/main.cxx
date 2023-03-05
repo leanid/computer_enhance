@@ -29,7 +29,7 @@ struct instruction
 
     std::string_view name() const { return instruction_names[bytes.index()]; }
 
-    std::string_view destanation_name() const
+    std::string destanation_name() const
     {
         if (std::holds_alternative<register_memory_to_from_register>(bytes))
         {
@@ -41,10 +41,15 @@ struct instruction
                 return reg_names[mov.w][reg];
             }
         }
+        else if (std::holds_alternative<immediate_to_register>(bytes))
+        {
+            const auto& mov = std::get<immediate_to_register>(bytes);
+            return reg_names[mov.w][mov.reg];
+        }
         return "error";
     }
 
-    std::string_view source_name() const
+    std::string source_name() const
     {
         if (std::holds_alternative<register_memory_to_from_register>(bytes))
         {
@@ -56,6 +61,18 @@ struct instruction
                 unsigned reg = mov.d == 0 ? mov.reg : mov.r_m;
                 return reg_names[mov.w][reg];
             }
+        }
+        else if (std::holds_alternative<immediate_to_register>(bytes))
+        {
+            const auto& mov = std::get<immediate_to_register>(bytes);
+            uint16_t    value;
+            if (mov.w == 1)
+            {
+                value = mov.data_if_w_1;
+                value <<= 8;
+            }
+            value += mov.data;
+            return std::to_string(value);
         }
         return "error";
     }
@@ -95,6 +112,21 @@ private:
                 return true;
             }
         }
+        else if (auto command = reinterpret_cast<immediate_to_register*>(
+                     max_instruction_buffer.data());
+                 command->opcode == immediate_to_register::prefix)
+        {
+            auto data_bytes_size = command->w == 1 ? 2 : 1;
+            if (!binary.read(
+                    reinterpret_cast<char*>(&max_instruction_buffer[1]),
+                    data_bytes_size))
+            {
+                return false;
+            }
+
+            bytes = *command;
+            return true;
+        }
 
         return false;
     }
@@ -116,6 +148,18 @@ private:
 
         uint8_t disp_hi : 8;
     };
+    struct immediate_to_register
+    {
+        static constexpr uint8_t prefix = 0b1011;
+
+        uint8_t reg : 3;
+        uint8_t w : 1;
+        uint8_t opcode : 4;
+
+        uint8_t data : 8;
+
+        uint8_t data_if_w_1 : 8;
+    };
 #pragma pack(pop)
 
     static_assert(sizeof(register_memory_to_from_register) == 4,
@@ -125,10 +169,14 @@ private:
         { "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh" },
         { "ax", "cx", "dx", "bx", "sp", "bp", "si", "di" }
     };
-    static constexpr const char* instruction_names[2] = { "invalid_state",
+    static constexpr const char* instruction_names[3] = { "invalid_state",
+                                                          "mov",
                                                           "mov" };
 
-    std::variant<std::monostate, register_memory_to_from_register> bytes;
+    std::variant<std::monostate,
+                 register_memory_to_from_register,
+                 immediate_to_register>
+        bytes;
 };
 
 std::ostream& operator<<(std::ostream& out, const instruction cmd)
