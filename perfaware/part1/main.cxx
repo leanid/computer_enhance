@@ -43,13 +43,27 @@ struct instruction
             else if (mov.mod == register_memory_to_from_register::mod_memory &&
                      mov.r_m != 0b110)
             {
-                return reg_names[mov.w][mov.reg];
+                if (mov.d == 1)
+                {
+                    return reg_names[mov.w][mov.reg];
+                }
+                else
+                {
+                    return displacement_names
+                        [register_memory_to_from_register::mod_memory][mov.r_m];
+                }
             }
             else if (mov.mod ==
-                         register_memory_to_from_register::mod_memory_8_bit &&
-                     mov.d == 0b1)
+                     register_memory_to_from_register::mod_memory_8_bit)
             {
-                return reg_names[mov.w][mov.reg];
+                if (mov.d == 1)
+                {
+                    return reg_names[mov.w][mov.reg];
+                }
+                else
+                {
+                    return displacement_8_bit_to_string(mov);
+                }
             }
             else if (mov.mod ==
                          register_memory_to_from_register::mod_memory_16_bit &&
@@ -81,23 +95,27 @@ struct instruction
             else if (mov.mod == register_memory_to_from_register::mod_memory &&
                      mov.r_m != 0b110)
             {
-                return displacement_names
-                    [register_memory_to_from_register::mod_memory][mov.r_m];
+                if (mov.d == 1)
+                {
+                    return displacement_names
+                        [register_memory_to_from_register::mod_memory][mov.r_m];
+                }
+                else
+                {
+                    return reg_names[mov.w][mov.reg];
+                }
             }
             else if (mov.mod ==
-                         register_memory_to_from_register::mod_memory_8_bit &&
-                     mov.d == 1)
+                     register_memory_to_from_register::mod_memory_8_bit)
             {
-                std::string result = "[";
-                result += displacement_names[register_memory_to_from_register::
-                                                 mod_memory_8_bit][mov.r_m];
-                if (mov.disp_lo != 0)
+                if (mov.d == 1)
                 {
-                    result += " + ";
-                    result += std::to_string(mov.disp_lo);
+                    return displacement_8_bit_to_string(mov);
                 }
-                result += "]";
-                return result;
+                else
+                {
+                    return reg_names[mov.w][mov.reg];
+                }
             }
             else if (mov.mod ==
                          register_memory_to_from_register::mod_memory_16_bit &&
@@ -213,6 +231,7 @@ private:
 
         return false;
     }
+
 #pragma pack(push, 1)
     struct register_memory_to_from_register
     {
@@ -277,6 +296,21 @@ private:
     static constexpr const char* instruction_names[3] = { "invalid_state",
                                                           "mov",
                                                           "mov" };
+
+    std::string displacement_8_bit_to_string(
+        const register_memory_to_from_register& mov) const
+    {
+        std::string result = "[";
+        result += displacement_names
+            [register_memory_to_from_register::mod_memory_8_bit][mov.r_m];
+        if (mov.disp_lo != 0)
+        {
+            result += " + ";
+            result += std::to_string(mov.disp_lo);
+        }
+        result += "]";
+        return result;
+    }
 
     std::variant<std::monostate,
                  register_memory_to_from_register,
