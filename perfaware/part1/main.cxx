@@ -45,6 +45,18 @@ struct instruction
             {
                 return reg_names[mov.w][mov.reg];
             }
+            else if (mov.mod ==
+                         register_memory_to_from_register::mod_memory_8_bit &&
+                     mov.d == 0b1)
+            {
+                return reg_names[mov.w][mov.reg];
+            }
+            else if (mov.mod ==
+                         register_memory_to_from_register::mod_memory_16_bit &&
+                     mov.d == 1)
+            {
+                return reg_names[mov.w][mov.reg];
+            }
         }
         else if (std::holds_alternative<immediate_to_register>(bytes))
         {
@@ -69,7 +81,41 @@ struct instruction
             else if (mov.mod == register_memory_to_from_register::mod_memory &&
                      mov.r_m != 0b110)
             {
-                return displacement_names[mov.r_m];
+                return displacement_names
+                    [register_memory_to_from_register::mod_memory][mov.r_m];
+            }
+            else if (mov.mod ==
+                         register_memory_to_from_register::mod_memory_8_bit &&
+                     mov.d == 1)
+            {
+                std::string result = "[";
+                result += displacement_names[register_memory_to_from_register::
+                                                 mod_memory_8_bit][mov.r_m];
+                if (mov.disp_lo != 0)
+                {
+                    result += " + ";
+                    result += std::to_string(mov.disp_lo);
+                }
+                result += "]";
+                return result;
+            }
+            else if (mov.mod ==
+                         register_memory_to_from_register::mod_memory_16_bit &&
+                     mov.d == 1)
+            {
+                std::string result = "[";
+                result += displacement_names[register_memory_to_from_register::
+                                                 mod_memory_16_bit][mov.r_m];
+                if (mov.disp_lo != 0 || mov.disp_hi != 0)
+                {
+                    result += " + ";
+                    uint16_t value = mov.disp_hi;
+                    value <<= 8;
+                    value += mov.disp_lo;
+                    result += std::to_string(value);
+                }
+                result += "]";
+                return result;
             }
         }
         else if (std::holds_alternative<immediate_to_register>(bytes))
@@ -128,6 +174,26 @@ private:
                 bytes = *command;
                 return true;
             }
+            else if (command->mod ==
+                     register_memory_to_from_register::mod_memory_8_bit)
+            {
+                if (binary.read(
+                        reinterpret_cast<char*>(&max_instruction_buffer[2]), 1))
+                {
+                    bytes = *command;
+                    return true;
+                }
+            }
+            else if (command->mod ==
+                     register_memory_to_from_register::mod_memory_16_bit)
+            {
+                if (binary.read(
+                        reinterpret_cast<char*>(&max_instruction_buffer[2]), 2))
+                {
+                    bytes = *command;
+                    return true;
+                }
+            }
         }
         else if (auto command = reinterpret_cast<immediate_to_register*>(
                      max_instruction_buffer.data());
@@ -157,7 +223,7 @@ private:
         // memory-mode 8bit displacement folows
         static constexpr uint8_t mod_memory_8_bit = 0b01;
         // memory-mode 16bit displacement folows
-        static constexpr uint8_t mod_memoty_16_bit = 0b10;
+        static constexpr uint8_t mod_memory_16_bit = 0b10;
         // register-mode no displacement
         static constexpr uint8_t mod_register_to_register = 0b11;
 
@@ -194,9 +260,19 @@ private:
         { "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh" },
         { "ax", "cx", "dx", "bx", "sp", "bp", "si", "di" }
     };
-    static constexpr const char* displacement_names[8] = {
-        "[bx + si]", "[bx + di]", "[bp + si]",     "[bp + di]",
-        "[si]",      "[di]",      "direct access", "[bx]"
+    static constexpr const char* displacement_names[3][8] = {
+        { "[bx + si]",
+          "[bx + di]",
+          "[bp + si]",
+          "[bp + di]",
+          "[si]",
+          "[di]",
+          "direct access",
+          "[bx]" },
+
+        { "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx" },
+
+        { "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx" }
     };
     static constexpr const char* instruction_names[3] = { "invalid_state",
                                                           "mov",
